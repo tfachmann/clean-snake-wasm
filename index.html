@@ -1,0 +1,45 @@
+<html>
+    <head>
+        <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Board Playground</title>
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.13.0/css/all.min.css" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Inconsolata&family=Lato&display=swap" rel="stylesheet">
+        <link href="style.css" rel="stylesheet">
+    </head>
+    <body>
+    <script type="module">
+        import init from './pkg/clean_snake_wasm.js';
+        async function run() {
+            await init();
+        }
+        run();
+    </script>
+
+    <!-- Main game UI -->
+    <div id="playing">
+        <div id="game">
+            <div id="svg_div">
+                <svg id="dummy" viewBox="0 0 200 160"></svg>
+                <div id="board" class="background"></div>
+                <svg id="game_svg" viewBox="0 0 200 160">
+                    <g id="game_misc" transform="translate(0 0)"></g>
+                    <g id="game_content" transform="translate(0 0)"></g>
+                    <g id="game_overlay" transform="translate(0 0)"></g>
+                </svg>
+            </div>
+            <div id="touch_controls_wrapper" class="hidden">
+                <div id="touch_controls">
+                    <button id="move_left">Left</button>
+                    <button id="move_down">Down</button>
+                    <button id="move_up">Up</button>
+                    <button id="move_right">Right</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="footer">
+    </div>
+  </body>
+</html>
