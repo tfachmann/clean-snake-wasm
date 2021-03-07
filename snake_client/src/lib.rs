@@ -4,10 +4,14 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
 use rand::{thread_rng, Rng};
+use snake_common::{ClientMessage, ServerMessage};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::Mutex;
-use web_sys::{Document, Element, EventTarget, KeyboardEvent, Text, TouchEvent, Window};
+use web_sys::{
+    Blob, Document, Element, EventTarget, FileReader, HtmlInputElement, KeyboardEvent,
+    MessageEvent, ProgressEvent, Text, TouchEvent, WebSocket, Window,
+};
 
 type JsResult<T> = Result<T, JsValue>;
 type JsError = Result<(), JsValue>;
@@ -51,7 +55,7 @@ struct Snake {
 impl Snake {
     fn new(grid_size: GridSize, start_pos: GridPoint) -> Self {
         Self {
-            length: 3,
+            length: 9,
             direction: Direction::Right,
             pos: start_pos,
             grid_size,
@@ -144,6 +148,12 @@ impl Grid {
         snake_stack.push_front((6, 10));
         snake_stack.push_front((7, 10));
         snake_stack.push_front((8, 10));
+        snake_stack.push_front((9, 10));
+        snake_stack.push_front((10, 10));
+        snake_stack.push_front((11, 10));
+        snake_stack.push_front((12, 10));
+        snake_stack.push_front((13, 10));
+        snake_stack.push_front((14, 10));
         Grid {
             field,
             snake: Snake::new(grid_size, (8, 10)),
@@ -254,6 +264,9 @@ struct Board {
 
 impl Board {
     fn new(doc: &Document, touch: bool) -> JsResult<Board> {
+        doc.get_element_by_id("submit_score_wrapper")
+            .expect("Could not find submit_score_wrapper")
+            .set_attribute("class", "hidden")?;
         let grid_drawer = doc
             .get_element_by_id("game_content")
             .expect("Could not find game_content");
@@ -411,32 +424,20 @@ impl Board {
         Ok(())
     }
 
-    fn set_visibility(&mut self, visibility: bool) -> JsError {
-        let vis = match visibility {
-            true => "visible",
-            false => "hidden",
-        };
-        self.doc
-            .get_element_by_id("playing")
-            .expect("Could not get game_svg div")
-            .set_attribute("class", vis)?;
-        Ok(())
-    }
-
     fn draw_gameover(&mut self) -> JsError {
         self.text_score_comment.set_data("");
         let text_svg = self.doc.create_svg_element("text")?;
         text_svg.set_attribute("x", "65")?;
-        text_svg.set_attribute("y", "20")?;
+        text_svg.set_attribute("y", "15")?;
         let text = self.doc.create_text_node("Game Over");
         text_svg.append_child(&text)?;
 
         let text_svg2 = self.doc.create_svg_element("text")?;
-        text_svg2.set_attribute("x", "130")?;
+        text_svg2.set_attribute("x", "60")?;
         text_svg2.set_attribute("y", "250")?;
         let text2 = self.doc.create_text_node(match self.touch {
             true => "Touch `Right` to play again",
-            false => "Press `R` to play again",
+            false => "Press `ArrowRight` to play again",
         });
         text_svg2.append_child(&text2)?;
         text_svg2.set_attribute("transform", "scale(0.5, 0.5)")?;
@@ -450,7 +451,16 @@ impl Board {
 #[derive(Clone)]
 struct Base {
     doc: Document,
+    ws: WebSocket,
     touch: bool,
+}
+
+impl Base {
+    fn send(&self, msg: ClientMessage) -> JsError {
+        let encoded = bincode::serialize(&msg)
+            .map_err(|e| JsValue::from_str(&format!("Could not encode: {}", e)))?;
+        self.ws.send_with_u8_array(&encoded[..])
+    }
 }
 
 struct Playing {
@@ -492,30 +502,211 @@ impl Playing {
         self.board.on_keydown(event)
     }
 
-    fn stop_game(&mut self) {
+    fn stop_game(&mut self) -> JsError {
         self.board
             .draw_gameover()
             .expect("Could not draw gameover view");
+        self.base.send(ClientMessage::RequestHighscore(
+            self.board.grid.score as u32,
+        ))?;
         self.window.clear_interval_with_handle(self.handle_id);
+        Ok(())
     }
 
     fn on_start_game(&self) -> JsResult<StartGame> {
-        Ok(StartGame::new(self.base.clone(), self.window.clone()))
+        Ok(StartGame::new(
+            self.base.clone(),
+            self.window.clone(),
+            self.board.grid.score,
+        ))
     }
 }
 
 struct StartGame {
     base: Rc<Base>,
     window: Rc<Window>,
+    overlay: Element,
+    score: usize,
 }
 
 impl StartGame {
-    fn new(base: Rc<Base>, window: Rc<Window>) -> StartGame {
-        StartGame { base, window }
+    fn new(base: Rc<Base>, window: Rc<Window>, score: usize) -> StartGame {
+        let overlay = base
+            .doc
+            .get_element_by_id("game_overlay")
+            .expect("Could not find game_overlay");
+
+        let submit_button = base
+            .doc
+            .get_element_by_id("submit_score")
+            .expect("Could not find submit_score");
+        base.doc
+            .get_element_by_id("submit_score_wrapper")
+            .expect("Could not find submit_score_wrapper")
+            .set_attribute("class", "visible")
+            .expect("Could not set class");
+
+        let cb = Closure::wrap(Box::new(move || HANDLE.lock().unwrap().on_submit_score())
+            as Box<dyn FnMut() -> JsError>);
+        &submit_button
+            .dyn_ref::<web_sys::HtmlElement>()
+            .expect("Not an HtmlElement")
+            .set_onclick(Some(cb.as_ref().unchecked_ref()));
+        cb.forget();
+
+        StartGame {
+            base,
+            window,
+            overlay,
+            score,
+        }
     }
 
     fn on_start_game(&self) -> JsResult<Playing> {
         Ok(Playing::new(self.base.clone(), self.window.clone())?)
+    }
+
+    fn draw_highscore(&mut self, others: &Vec<(String, u32)>, you: &(u32, u32)) -> JsError {
+        fn count_digits(mut number: u32) -> u32 {
+            let mut digits: u32 = 1;
+            while number > 9 {
+                number = (number as f64 / 10.0) as u32;
+                digits += 1
+            }
+            return digits;
+        }
+        let create_text_element =
+            |width: usize, height: usize, text: &str, class: &str| -> Result<Element, JsValue> {
+                let text_element = self.base.doc.create_svg_element("text")?;
+                text_element.set_attribute("x", &width.to_string())?;
+                text_element.set_attribute("y", &height.to_string())?;
+                text_element.set_attribute("transform", "scale(0.4, 0.4)")?;
+                text_element.set_attribute("class", class)?;
+                let text_name = self.base.doc.create_text_node(text);
+                text_element.append_child(&text_name)?;
+                return Ok(text_element);
+            };
+        let fill_winner = |height: usize, your_pos: u32, your_score: u32| -> JsError {
+            let text_place = create_text_element(
+                130 - 10 * count_digits(your_pos) as usize,
+                height + 25,
+                &format!("{}.", your_pos),
+                "you",
+            )?;
+            let text_name = create_text_element(140, height + 25, "YOU", "you")?;
+            let text_score = create_text_element(350, height + 25, &your_score.to_string(), "you")?;
+            self.overlay.append_child(&text_place)?;
+            self.overlay.append_child(&text_name)?;
+            self.overlay.append_child(&text_score)?;
+            Ok(())
+        };
+
+        let rect = self.base.doc.create_svg_element("rect")?;
+        rect.set_attribute("class", "highscore_background")?;
+        rect.set_attribute("width", "310")?;
+        rect.set_attribute("height", "225")?;
+        rect.set_attribute("x", "90")?;
+        rect.set_attribute("y", "50")?;
+        rect.set_attribute("transform", "scale(0.4, 0.4)")?;
+        self.overlay.append_child(&rect)?;
+
+        let (your_pos, your_score) = you;
+        let mut i = 1;
+        let mut you_inserted = false;
+        if *your_pos == 0 {
+            // you are the best
+            let height = 65 + 10;
+            fill_winner(height - 25, *your_pos + 1, *your_score)?;
+            let dot = create_text_element(160, height + 10, ".", "others")?;
+            let dot2 = create_text_element(160, height + 14, ".", "others")?;
+            let dot3 = create_text_element(160, height + 18, ".", "others")?;
+            let dot4 = create_text_element(160, height + 22, ".", "others")?;
+            self.overlay.append_child(&dot)?;
+            self.overlay.append_child(&dot2)?;
+            self.overlay.append_child(&dot3)?;
+            self.overlay.append_child(&dot4)?;
+            i += 1;
+            you_inserted = true;
+        }
+        for (name, score) in others {
+            // only show the 10 best (including yourself)
+            if i == 11 {
+                continue;
+            }
+            let height = (65 + i * 18 + (15 * you_inserted as u32)) as usize;
+            let text_place = create_text_element(
+                130 - 10 * count_digits(i as u32) as usize,
+                height,
+                &format!("{}.", i),
+                "others",
+            )?;
+            let text_name = create_text_element(140, height, name, "others")?;
+            let text_score = create_text_element(350, height, &score.to_string(), "others")?;
+
+            self.overlay.append_child(&text_place)?;
+            self.overlay.append_child(&text_name)?;
+            self.overlay.append_child(&text_score)?;
+            if !you_inserted {
+                if *your_pos == i as u32 {
+                    i += 1;
+                    // you are within the 10 best
+                    fill_winner(height, *your_pos + 1, *your_score)?;
+                    let dot = create_text_element(160, height + 7, ".", "others")?;
+                    let dot2 = create_text_element(160, height + 10, ".", "others")?;
+                    self.overlay.append_child(&dot)?;
+                    self.overlay.append_child(&dot2)?;
+
+                    if *your_pos != others.len() as u32 {
+                        let dot3 = create_text_element(160, height + 30, ".", "others")?;
+                        let dot4 = create_text_element(160, height + 33, ".", "others")?;
+                        self.overlay.append_child(&dot3)?;
+                        self.overlay.append_child(&dot4)?;
+                    }
+                    you_inserted = true;
+                }
+            }
+            i += 1
+        }
+        if !you_inserted {
+            // you are outside the best 10
+            let height = 65 + others.len() * 18;
+            fill_winner(height, *your_pos + 1, *your_score)?;
+            let dot = create_text_element(160, height + 7, ".", "others")?;
+            let dot2 = create_text_element(160, height + 10, ".", "others")?;
+            self.overlay.append_child(&dot)?;
+            self.overlay.append_child(&dot2)?;
+        }
+
+        Ok(())
+    }
+
+    fn submit_score(&mut self) -> JsError {
+        fn check_name(name: &str) -> bool {
+            if name.len() > 20 {
+                false
+            } else if name.is_empty() {
+                false
+            } else if name.contains("<") || name.contains(">") {
+                false
+            } else {
+                true
+            }
+        }
+        let input_el = self
+            .base
+            .doc
+            .get_element_by_id("input_name")
+            .expect("Could not find input_name")
+            .dyn_into::<HtmlInputElement>()
+            .expect("Could not convert");
+        let name = input_el.value();
+        if check_name(&name) {
+            let msg = ClientMessage::SubmitName(name, self.score as u32);
+            self.base.send(msg)?;
+        } else {
+            // TODO: notify user
+        }
+        Ok(())
     }
 }
 
@@ -530,7 +721,7 @@ impl State {
         Ok(match self {
             State::Playing(s) => s.on_keydown(event)?,
             State::StartGame(_s) => {
-                if event.key().as_str() == "r" || event.key().as_str() == "R" {
+                if event.key().as_str() == "ArrowRight" {
                     // Transition to Playing
                     let s = std::mem::replace(self, State::Empty);
                     match s {
@@ -576,7 +767,7 @@ impl State {
                     State::StartGame(s) => *self = State::Playing(s.on_start_game()?),
                     _ => panic!("Invalid state"),
                 }
-            },
+            }
             _ => (),
         })
     }
@@ -587,7 +778,7 @@ impl State {
                 match s.board.grid.do_move() {
                     Ok(_) => s.board.draw()?,
                     Err(_) => {
-                        s.stop_game();
+                        s.stop_game()?;
                         // Transition to StartGame
                         let s = std::mem::replace(self, State::Empty);
                         match s {
@@ -599,6 +790,29 @@ impl State {
             }
             State::Empty => (),
             State::StartGame(_) => (),
+        }
+        Ok(())
+    }
+
+    fn received_highscore(&mut self, others: &Vec<(String, u32)>, you: &(u32, u32)) -> JsError {
+        match self {
+            State::Playing(_) => (),
+            State::StartGame(s) => {
+                s.draw_highscore(others, you)?;
+            }
+            State::Empty => (),
+        }
+        Ok(())
+    }
+
+    fn on_submit_score(&mut self) -> JsError {
+        console_log!("on_submit_score...");
+        match self {
+            State::Playing(_) => (),
+            State::StartGame(s) => {
+                s.submit_score()?;
+            }
+            State::Empty => (),
         }
         Ok(())
     }
@@ -640,14 +854,59 @@ where
     cb
 }
 
+fn on_message(msg: ServerMessage) -> JsError {
+    console_log!("Got message {:?}", msg);
+
+    let mut state = HANDLE.lock().unwrap();
+
+    match msg {
+        ServerMessage::Highscore { others, you } => state.received_highscore(&others, &you),
+    }
+}
+
 #[wasm_bindgen(start)]
 pub fn main() -> JsError {
     console_log!("Started Main!");
     let window = web_sys::window().expect("no global `window` exists");
 
     let doc = window.document().expect("should have a document on window");
+    let location = doc.location().expect("Could not get doc location");
+    let hostname = location.hostname()?;
+    let (ws_protocol, ws_port) = if location.protocol()? == "https:" {
+        ("wss", 8091)
+    } else {
+        ("ws", 8090)
+    };
+    let hostname = format!("{}://{}:{}", ws_protocol, hostname, ws_port);
 
-    let mut base = Base { doc, touch: false };
+    let ws = WebSocket::new(&hostname)?;
+
+    let on_decoded_cb = Closure::wrap(Box::new(move |e: ProgressEvent| {
+        let target = e.target().expect("Could not get target");
+        let reader: FileReader = target.dyn_into().expect("Could not cast");
+        let result = reader.result().expect("Could not get result");
+        let buf = js_sys::Uint8Array::new(&result);
+        let mut data = vec![0; buf.length() as usize];
+        buf.copy_to(&mut data[..]);
+        let msg = bincode::deserialize(&data[..])
+            .map_err(|e| JsValue::from_str(&format!("Failed to deserialize: {}", e)))
+            .expect("Could not decode message");
+        on_message(msg).expect("Message decoding failed")
+    }) as Box<dyn FnMut(ProgressEvent)>);
+    set_event_cb(&ws, "message", move |e: MessageEvent| {
+        let blob = e.data().dyn_into::<Blob>()?;
+        let fr = FileReader::new()?;
+        fr.add_event_listener_with_callback("load", &on_decoded_cb.as_ref().unchecked_ref())?;
+        fr.read_as_array_buffer(&blob)?;
+        Ok(())
+    })
+    .forget();
+
+    let mut base = Base {
+        doc,
+        ws,
+        touch: false,
+    };
 
     set_event_cb(&base.doc, "keydown", move |event: KeyboardEvent| {
         HANDLE.lock().unwrap().on_keydown(event)

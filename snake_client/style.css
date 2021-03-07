@@ -13,22 +13,11 @@ body {
     margin-left: 20px;
     margin-right: 20px;
     background-color: #212121;
-    /*overflow: hidden;*/
+    overflow: hidden;
 }
 
-/*  Make the 'Room:' text unselectable to make copy-pasting easier */
-.noselect {
-    -webkit-touch-callout: none;
-    -webkit-user-select: none;
-    -khtml-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
-}
 div#playing {
     max-width: 100vh;
-    /*width: calc(100%);*/
-    /*height: calc(87.5%);*/
 }
 
 div#game {
@@ -38,24 +27,33 @@ div#game {
     height: 100%;
 }
 
-div#game_head {
-    column-gap: 2px;
-    display: inline;
+div#submit_score_wrapper {
+    /*display: inline;*/
+}
+div#submit_score_div {
+    border:1px solid #37474F;
+    margin: 0 auto;
+    width: 350pt;
+    display: flex;
+    justify-content: space-between;
+    flex-direction: row;
+    align-items: center;
+    font-size: 15pt;
+    padding: 2pt;
+}
+button#submit_score {
+    height: 30pt;
+    font-size: 15pt;
+}
+input#input_name {
+    height: 30pt;
+    font-size: 15pt;
+    border-radius: 0;
+    border:1px solid #37474F;
+    background-color: #263238;
+    color: #CFD8DC;
 }
 
-div#score_comment {
-    display: inline;
-    margin-left: 40px;
-}
-
-div#score_title {
-    display: inline;
-    margin-left: 2pt;
-}
-
-div#score {
-    display: inline;
-}
 div#touch_controls_wrapper {
     height: 100%;
 }
@@ -103,11 +101,20 @@ rect.snake_head {
     stroke-width: 0.5;
     stroke: #757575;
 }
+rect.highscore_background {
+    fill: #263238;
+    fill-opacity: 0.7;
+    stroke-width: 1;
+    stroke: #37474F;
+}
 rect#pan_rect {
     fill: none;
 }
 text {
     fill: #CFD8DC;
+}
+text.you {
+    fill: #E65100;
 }
 
 /*  Main game board */
@@ -135,10 +142,3 @@ div#svg_div {
     margin-bottom: 10px;
     position: relative;
 }
-
-/* Two-column layout */
-/*@media only screen and (min-width: 750px) {*/
-    /*div#game {*/
-        /*grid-template-columns: 2fr 1fr;*/
-    /*}*/
-/*}*/
