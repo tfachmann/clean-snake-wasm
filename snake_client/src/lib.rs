@@ -433,7 +433,7 @@ impl Board {
         text_svg.append_child(&text)?;
 
         let text_svg2 = self.doc.create_svg_element("text")?;
-        text_svg2.set_attribute("x", "130")?;
+        text_svg2.set_attribute("x", "115")?;
         text_svg2.set_attribute("y", "250")?;
         let text2 = self.doc.create_text_node(match self.touch {
             true => "Touch `Right` to play again",
@@ -546,6 +546,7 @@ impl StartGame {
             .expect("Could not find submit_score")
             .dyn_into::<HtmlButtonElement>()
             .expect("Not an HtmlButtonElement");
+        submit_button.set_disabled(false);
 
         base.doc
             .get_element_by_id("submit_score_wrapper")
