@@ -1,4 +1,6 @@
-use serde::{Serialize, Deserialize};
+use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
 
 type Score = u32;
 type Position = u32;
@@ -7,14 +9,28 @@ type Name = String;
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ClientMessage {
     RequestHighscore(Score),
-    SubmitName(Name, Score),
+    SubmitEntry {
+        name: String,
+        score: u32,
+        elapsed_time: Duration,
+        snake_length: u32,
+        changed_directions: u32,
+        passed_through_walls: u32,
+    },
 }
 
 impl ClientMessage {
     pub fn class_name(&self) -> &str {
         match self {
             ClientMessage::RequestHighscore(_) => "RequestHighscore",
-            ClientMessage::SubmitName(_, _) => "SubmitName",
+            ClientMessage::SubmitEntry {
+                name: _,
+                score: _,
+                elapsed_time: _,
+                snake_length: _,
+                changed_directions: _,
+                passed_through_walls: _,
+            } => "SubmitEntry",
         }
     }
 }
@@ -24,13 +40,13 @@ pub enum ServerMessage {
     Highscore {
         others: Vec<(Name, Score)>,
         you: (Position, Score),
-    }
+    },
 }
 
 impl ServerMessage {
     pub fn class_name(&self) -> &str {
         match self {
-            ServerMessage::Highscore { others: _, you: _ } => { "Highscore" }
+            ServerMessage::Highscore { others: _, you: _ } => "Highscore",
         }
     }
 }

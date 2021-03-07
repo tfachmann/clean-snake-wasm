@@ -5,13 +5,13 @@ use wasm_bindgen::JsCast;
 
 use rand::{thread_rng, Rng};
 use snake_common::{ClientMessage, ServerMessage};
-use std::collections::VecDeque;
-use std::rc::Rc;
 use std::sync::Mutex;
+use std::{collections::VecDeque, rc::Rc, time::Duration};
 use web_sys::{
-    Blob, Document, Element, EventTarget, FileReader, HtmlButtonElement, HtmlInputElement, InputEvent, KeyboardEvent,
-    MessageEvent, ProgressEvent, Text, TouchEvent, WebSocket, Window,
+    Blob, Document, Element, EventTarget, FileReader, HtmlButtonElement, HtmlInputElement,
+    InputEvent, KeyboardEvent, MessageEvent, ProgressEvent, Text, TouchEvent, WebSocket, Window,
 };
+use instant::Instant;
 
 type JsResult<T> = Result<T, JsValue>;
 type JsError = Result<(), JsValue>;
@@ -44,6 +44,10 @@ enum Direction {
 
 struct Snake {
     length: usize,
+    changed_directions: usize,
+    passed_through_walls: usize,
+    start_time: Instant,
+    duration: Duration,
     direction: Direction,
     pos: GridPoint,
     grid_size: GridSize,
@@ -56,6 +60,10 @@ impl Snake {
     fn new(grid_size: GridSize, start_pos: GridPoint) -> Self {
         Self {
             length: 9,
+            changed_directions: 0,
+            passed_through_walls: 0,
+            start_time: Instant::now(),
+            duration: Duration::default(),
             direction: Direction::Right,
             pos: start_pos,
             grid_size,
@@ -69,22 +77,26 @@ impl Snake {
             match self.direction {
                 Direction::Left => {
                     if direction != Direction::Right {
-                        self.direction = direction
+                        self.direction = direction;
+                        self.changed_directions += 1;
                     }
                 }
                 Direction::Down => {
                     if direction != Direction::Up {
-                        self.direction = direction
+                        self.direction = direction;
+                        self.changed_directions += 1;
                     }
                 }
                 Direction::Up => {
                     if direction != Direction::Down {
-                        self.direction = direction
+                        self.direction = direction;
+                        self.changed_directions += 1;
                     }
                 }
                 Direction::Right => {
                     if direction != Direction::Left {
-                        self.direction = direction
+                        self.direction = direction;
+                        self.changed_directions += 1;
                     }
                 }
             }
@@ -95,21 +107,29 @@ impl Snake {
     fn do_move(&mut self) -> GridPoint {
         let mut pos_new = match self.direction {
             Direction::Left => (
-                self.pos.0.checked_sub(1).unwrap_or(self.grid_size.0 - 1),
+                self.pos.0.checked_sub(1).unwrap_or_else( || {
+                    self.passed_through_walls += 1;
+                    self.grid_size.0 - 1
+                }),
                 self.pos.1,
             ),
             Direction::Down => (self.pos.0, self.pos.1 + 1),
             Direction::Up => (
                 self.pos.0,
-                self.pos.1.checked_sub(1).unwrap_or(self.grid_size.1 - 1),
+                self.pos.1.checked_sub(1).unwrap_or_else( || {
+                    self.passed_through_walls += 1;
+                    self.grid_size.1 - 1
+                }),
             ),
             Direction::Right => (self.pos.0 + 1, self.pos.1),
         };
         if self.continuous_borders {
             if pos_new.0 == self.grid_size.0 {
+                self.passed_through_walls += 1;
                 pos_new.0 = 0;
             }
             if pos_new.1 == self.grid_size.1 {
+                self.passed_through_walls += 1;
                 pos_new.1 = 0;
             }
         }
@@ -120,6 +140,11 @@ impl Snake {
 
     fn do_eat(&mut self) {
         self.length += 1;
+    }
+
+    fn do_stop(&mut self) {
+        self.duration = self.start_time.elapsed();
+        console_log!("duration: {:?}", self.duration);
     }
 }
 
@@ -136,9 +161,10 @@ struct Grid {
     snake: Snake,
     snake_stack: VecDeque<GridPoint>,
 
-    score: usize,
     move_count: usize,
     perfect_score: usize,
+
+    score: usize,
 }
 
 impl Grid {
@@ -172,6 +198,7 @@ impl Grid {
             GridField::Snake => {
                 if let Some((x_end, y_end)) = self.snake_stack.pop_back() {
                     if x != x_end || y != y_end {
+                        self.snake.do_stop();
                         Err("GameOver".to_string())
                     } else {
                         self.field[x_end][y_end] = GridField::Empty;
@@ -181,6 +208,7 @@ impl Grid {
                         Ok(())
                     }
                 } else {
+                    self.snake.do_stop();
                     Err("GameOver".to_string())
                 }
             }
@@ -427,7 +455,7 @@ impl Board {
     fn draw_gameover(&mut self) -> JsError {
         self.text_score_comment.set_data("");
         let text_svg = self.doc.create_svg_element("text")?;
-        text_svg.set_attribute("x", "65")?;
+        text_svg.set_attribute("x", "60")?;
         text_svg.set_attribute("y", "15")?;
         let text = self.doc.create_text_node("Game Over");
         text_svg.append_child(&text)?;
@@ -517,24 +545,38 @@ impl Playing {
         Ok(StartGame::new(
             self.base.clone(),
             self.window.clone(),
-            self.board.grid.score,
+            GameInfo {
+                score: self.board.grid.score(),
+                elapsed_time: self.board.grid.snake.duration,
+                snake_length: self.board.grid.snake.length,
+                changed_directions: self.board.grid.snake.changed_directions,
+                passed_through_walls: self.board.grid.snake.passed_through_walls,
+            },
         ))
     }
+}
+
+struct GameInfo {
+    score: usize,
+    elapsed_time: Duration,
+    snake_length: usize,
+    changed_directions: usize,
+    passed_through_walls: usize,
 }
 
 struct StartGame {
     base: Rc<Base>,
     window: Rc<Window>,
     overlay: Element,
-    score: usize,
     submit_button: HtmlButtonElement,
     input_name: HtmlInputElement,
     input_val_before: String,
     already_submitted: bool,
+    game_info: GameInfo,
 }
 
 impl StartGame {
-    fn new(base: Rc<Base>, window: Rc<Window>, score: usize) -> StartGame {
+    fn new(base: Rc<Base>, window: Rc<Window>, game_info: GameInfo) -> StartGame {
         let overlay = base
             .doc
             .get_element_by_id("game_overlay")
@@ -569,19 +611,18 @@ impl StartGame {
 
         let cb = Closure::wrap(Box::new(move || HANDLE.lock().unwrap().on_submit_score())
             as Box<dyn FnMut() -> JsError>);
-        &submit_button
-            .set_onclick(Some(cb.as_ref().unchecked_ref()));
+        &submit_button.set_onclick(Some(cb.as_ref().unchecked_ref()));
         cb.forget();
 
         StartGame {
             base,
             window,
             overlay,
-            score,
             submit_button,
             input_name,
             input_val_before: String::new(),
             already_submitted: false,
+            game_info,
         }
     }
 
@@ -717,7 +758,14 @@ impl StartGame {
         if !self.already_submitted {
             let name = self.input_name.value();
             if self.check_name(&name) && !name.is_empty() {
-                let msg = ClientMessage::SubmitName(name, self.score as u32);
+                let msg = ClientMessage::SubmitEntry {
+                    name,
+                    score: self.game_info.score as u32,
+                    elapsed_time: self.game_info.elapsed_time,
+                    snake_length: self.game_info.snake_length as u32,
+                    changed_directions: self.game_info.changed_directions as u32,
+                    passed_through_walls: self.game_info.passed_through_walls as u32,
+                };
                 self.base.send(msg)?;
                 self.already_submitted = true;
                 self.submit_button.set_inner_html("Success!");

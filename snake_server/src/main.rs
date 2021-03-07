@@ -1,26 +1,44 @@
 use async_tungstenite::{tungstenite::Message, WebSocketStream};
+use chrono::{DateTime, Utc};
 use env_logger::Env;
 use futures::{sink::SinkExt, stream::StreamExt};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use smol::Async;
 use snake_common::{ClientMessage, ServerMessage};
-use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::{fs::File, time::Duration};
 use thiserror::Error;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct HighScoreEntry {
+    date: DateTime<Utc>,
     name: String,
     score: u32,
+    elapsed_time: Duration,
+    snake_length: u32,
+    changed_directions: u32,
+    passed_through_walls: u32,
 }
 
 impl HighScoreEntry {
-    fn new(name: &str, score: u32) -> Self {
+    fn new(
+        name: &str,
+        score: u32,
+        elapsed_time: Duration,
+        snake_length: u32,
+        changed_directions: u32,
+        passed_through_walls: u32,
+    ) -> Self {
         Self {
+            date: Utc::now(),
             name: name.to_string(),
             score,
+            elapsed_time,
+            snake_length,
+            changed_directions,
+            passed_through_walls,
         }
     }
 }
@@ -113,9 +131,24 @@ async fn request_highscore(
     }
 }
 
-async fn submit_entry(name: String, score: u32, highscore_vec: &mut Vec<HighScoreEntry>) {
-    info!("Submitting Name: {} with score: {}", name, score);
-    highscore_vec.push(HighScoreEntry::new(&name, score));
+async fn submit_entry(
+    name: &str,
+    score: u32,
+    elapsed_time: Duration,
+    snake_length: u32,
+    changed_directions: u32,
+    passed_through_walls: u32,
+    highscore_vec: &mut Vec<HighScoreEntry>,
+) {
+    info!("Submitting entry for: `{}`", name);
+    highscore_vec.push(HighScoreEntry::new(
+        name,
+        score,
+        elapsed_time,
+        snake_length,
+        changed_directions,
+        passed_through_walls,
+    ));
     highscore_vec.sort_by_key(|el| el.score);
     match write_highscore_list(&highscore_vec) {
         Ok(_) => info!("Sucessfully submitted {}", &name),
@@ -139,8 +172,24 @@ async fn read_stream(
                     ClientMessage::RequestHighscore(score) => {
                         request_highscore(score, &mut stream, highscore_vec).await
                     }
-                    ClientMessage::SubmitName(name, score) => {
-                        submit_entry(name, score, highscore_vec).await
+                    ClientMessage::SubmitEntry {
+                        name,
+                        score,
+                        elapsed_time,
+                        snake_length,
+                        changed_directions,
+                        passed_through_walls,
+                    } => {
+                        submit_entry(
+                            &name,
+                            score,
+                            elapsed_time,
+                            snake_length,
+                            changed_directions,
+                            passed_through_walls,
+                            highscore_vec,
+                        )
+                        .await
                     }
                 }
             }
@@ -153,6 +202,7 @@ pub fn main() {
     let addr = "127.0.0.1:8090";
 
     let mut highscore_vec: Vec<HighScoreEntry> = read_highscore_list();
+    println!("{:#?}", highscore_vec);
 
     smol::block_on(async {
         info!("Listening on: {}", addr);
