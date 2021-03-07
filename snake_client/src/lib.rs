@@ -59,7 +59,7 @@ struct Snake {
 impl Snake {
     fn new(grid_size: GridSize, start_pos: GridPoint) -> Self {
         Self {
-            length: 9,
+            length: 3,
             changed_directions: 0,
             passed_through_walls: 0,
             start_time: Instant::now(),
@@ -174,12 +174,6 @@ impl Grid {
         snake_stack.push_front((6, 10));
         snake_stack.push_front((7, 10));
         snake_stack.push_front((8, 10));
-        snake_stack.push_front((9, 10));
-        snake_stack.push_front((10, 10));
-        snake_stack.push_front((11, 10));
-        snake_stack.push_front((12, 10));
-        snake_stack.push_front((13, 10));
-        snake_stack.push_front((14, 10));
         Grid {
             field,
             snake: Snake::new(grid_size, (8, 10)),
@@ -455,7 +449,7 @@ impl Board {
     fn draw_gameover(&mut self) -> JsError {
         self.text_score_comment.set_data("");
         let text_svg = self.doc.create_svg_element("text")?;
-        text_svg.set_attribute("x", "60")?;
+        text_svg.set_attribute("x", "61")?;
         text_svg.set_attribute("y", "15")?;
         let text = self.doc.create_text_node("Game Over");
         text_svg.append_child(&text)?;
@@ -589,6 +583,7 @@ impl StartGame {
             .dyn_into::<HtmlButtonElement>()
             .expect("Not an HtmlButtonElement");
         submit_button.set_disabled(false);
+        submit_button.set_inner_html("Submit");
 
         base.doc
             .get_element_by_id("submit_score_wrapper")
