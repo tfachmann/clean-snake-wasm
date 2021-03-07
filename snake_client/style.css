@@ -31,11 +31,9 @@ div#submit_score_wrapper {
     /*display: inline;*/
 }
 div#submit_score_div {
-    border:1px solid #37474F;
     margin: 0 auto;
-    width: 350pt;
+    width: 280pt;
     display: flex;
-    justify-content: space-between;
     flex-direction: row;
     align-items: center;
     font-size: 15pt;
@@ -52,6 +50,8 @@ input#input_name {
     border:1px solid #37474F;
     background-color: #263238;
     color: #CFD8DC;
+    margin-right: 5pt;
+    padding: 2pt;
 }
 
 div#touch_controls_wrapper {
@@ -68,6 +68,11 @@ button {
     background-color: #263238;
     border:1px solid #37474F;
     margin: 2pt;
+}
+button:disabled,
+button[disabled] {
+    color: #263238;
+    background-color: #757575;
 }
 button#move_left {
     grid-row: 2;

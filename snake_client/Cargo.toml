@@ -33,6 +33,7 @@ features = [
   'HtmlElement',
   'HtmlButtonElement',
   'HtmlInputElement',
+  'InputEvent',
   'KeyboardEvent',
   'Location',
   'MessageEvent',

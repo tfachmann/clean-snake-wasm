@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::Mutex;
 use web_sys::{
-    Blob, Document, Element, EventTarget, FileReader, HtmlInputElement, KeyboardEvent,
+    Blob, Document, Element, EventTarget, FileReader, HtmlButtonElement, HtmlInputElement, InputEvent, KeyboardEvent,
     MessageEvent, ProgressEvent, Text, TouchEvent, WebSocket, Window,
 };
 
@@ -433,11 +433,11 @@ impl Board {
         text_svg.append_child(&text)?;
 
         let text_svg2 = self.doc.create_svg_element("text")?;
-        text_svg2.set_attribute("x", "60")?;
+        text_svg2.set_attribute("x", "130")?;
         text_svg2.set_attribute("y", "250")?;
         let text2 = self.doc.create_text_node(match self.touch {
             true => "Touch `Right` to play again",
-            false => "Press `ArrowRight` to play again",
+            false => "Press `Esc` to play again",
         });
         text_svg2.append_child(&text2)?;
         text_svg2.set_attribute("transform", "scale(0.5, 0.5)")?;
@@ -527,6 +527,10 @@ struct StartGame {
     window: Rc<Window>,
     overlay: Element,
     score: usize,
+    submit_button: HtmlButtonElement,
+    input_name: HtmlInputElement,
+    input_val_before: String,
+    already_submitted: bool,
 }
 
 impl StartGame {
@@ -539,18 +543,32 @@ impl StartGame {
         let submit_button = base
             .doc
             .get_element_by_id("submit_score")
-            .expect("Could not find submit_score");
+            .expect("Could not find submit_score")
+            .dyn_into::<HtmlButtonElement>()
+            .expect("Not an HtmlButtonElement");
+
         base.doc
             .get_element_by_id("submit_score_wrapper")
             .expect("Could not find submit_score_wrapper")
             .set_attribute("class", "visible")
             .expect("Could not set class");
 
+        let input_name = base
+            .doc
+            .get_element_by_id("input_name")
+            .expect("Could not find input_name")
+            .dyn_into::<HtmlInputElement>()
+            .expect("Could not convert");
+
+        // TODO: only when connection exists
+        set_event_cb(&input_name, "input", move |event: InputEvent| {
+            HANDLE.lock().unwrap().on_input_name(event)
+        })
+        .forget();
+
         let cb = Closure::wrap(Box::new(move || HANDLE.lock().unwrap().on_submit_score())
             as Box<dyn FnMut() -> JsError>);
         &submit_button
-            .dyn_ref::<web_sys::HtmlElement>()
-            .expect("Not an HtmlElement")
             .set_onclick(Some(cb.as_ref().unchecked_ref()));
         cb.forget();
 
@@ -559,6 +577,10 @@ impl StartGame {
             window,
             overlay,
             score,
+            submit_button,
+            input_name,
+            input_val_before: String::new(),
+            already_submitted: false,
         }
     }
 
@@ -680,31 +702,39 @@ impl StartGame {
         Ok(())
     }
 
+    fn check_name(&self, name: &str) -> bool {
+        if name.len() > 20 {
+            false
+        } else if name.contains("<") || name.contains(">") {
+            false
+        } else {
+            true
+        }
+    }
+
     fn submit_score(&mut self) -> JsError {
-        fn check_name(name: &str) -> bool {
-            if name.len() > 20 {
-                false
-            } else if name.is_empty() {
-                false
-            } else if name.contains("<") || name.contains(">") {
-                false
+        if !self.already_submitted {
+            let name = self.input_name.value();
+            if self.check_name(&name) && !name.is_empty() {
+                let msg = ClientMessage::SubmitName(name, self.score as u32);
+                self.base.send(msg)?;
+                self.already_submitted = true;
+                self.submit_button.set_inner_html("Success!");
+                self.submit_button.set_disabled(true);
             } else {
-                true
+                // TODO: notify user
             }
         }
-        let input_el = self
-            .base
-            .doc
-            .get_element_by_id("input_name")
-            .expect("Could not find input_name")
-            .dyn_into::<HtmlInputElement>()
-            .expect("Could not convert");
-        let name = input_el.value();
-        if check_name(&name) {
-            let msg = ClientMessage::SubmitName(name, self.score as u32);
-            self.base.send(msg)?;
+        Ok(())
+    }
+
+    fn on_input_name_changed(&mut self) -> JsError {
+        let name = self.input_name.value();
+        if self.check_name(&name) {
+            self.input_name.set_value(&name);
+            self.input_val_before = name;
         } else {
-            // TODO: notify user
+            self.input_name.set_value(&self.input_val_before);
         }
         Ok(())
     }
@@ -721,7 +751,7 @@ impl State {
         Ok(match self {
             State::Playing(s) => s.on_keydown(event)?,
             State::StartGame(_s) => {
-                if event.key().as_str() == "ArrowRight" {
+                if event.key().as_str() == "Escape" {
                     // Transition to Playing
                     let s = std::mem::replace(self, State::Empty);
                     match s {
@@ -816,6 +846,15 @@ impl State {
         }
         Ok(())
     }
+
+    fn on_input_name(&mut self, _event: InputEvent) -> JsError {
+        match self {
+            State::Playing(_) => (),
+            State::StartGame(s) => s.on_input_name_changed()?,
+            State::Empty => (),
+        }
+        Ok(())
+    }
 }
 
 unsafe impl Send for State {
@@ -880,6 +919,7 @@ pub fn main() -> JsError {
     let hostname = format!("{}://{}:{}", ws_protocol, hostname, ws_port);
 
     let ws = WebSocket::new(&hostname)?;
+    console_log!("ws ready_state: {}", ws.ready_state());
 
     let on_decoded_cb = Closure::wrap(Box::new(move |e: ProgressEvent| {
         let target = e.target().expect("Could not get target");
