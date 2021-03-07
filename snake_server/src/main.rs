@@ -1,17 +1,17 @@
 use async_tungstenite::{tungstenite::Message, WebSocketStream};
 use chrono::{DateTime, Utc};
 use env_logger::Env;
-use futures::{sink::SinkExt, stream::StreamExt};
+use futures::{future, sink::SinkExt, stream::StreamExt};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
-use smol::Async;
+use smol::{Async, Task};
 use snake_common::{ClientMessage, ServerMessage};
-use std::io::{Read, Write};
+use std::{io::{Read, Write}, sync::{Arc, Mutex}};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::{fs::File, time::Duration};
 use thiserror::Error;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct HighScoreEntry {
     date: DateTime<Utc>,
     name: String,
@@ -89,9 +89,10 @@ fn write_highscore_list(data: &Vec<HighScoreEntry>) -> Result<(), WriteError> {
 async fn request_highscore(
     score: u32,
     stream: &mut WebSocketStream<Async<TcpStream>>,
-    highscore_vec: &mut Vec<HighScoreEntry>,
+    highscore_vec: &mut Arc<Mutex<Vec<HighScoreEntry>>>,
 ) {
     // return entries
+    let highscore_vec = highscore_vec.lock().unwrap().clone();
     let resp = ServerMessage::Highscore {
         others: {
             let slice = if highscore_vec.len() < 10 {
@@ -138,8 +139,9 @@ async fn submit_entry(
     snake_length: u32,
     changed_directions: u32,
     passed_through_walls: u32,
-    highscore_vec: &mut Vec<HighScoreEntry>,
+    highscore_vec: &mut Arc<Mutex<Vec<HighScoreEntry>>>,
 ) {
+    let mut highscore_vec = highscore_vec.lock().unwrap();
     info!("Submitting entry for: `{}`", name);
     highscore_vec.push(HighScoreEntry::new(
         name,
@@ -158,7 +160,7 @@ async fn submit_entry(
 
 async fn read_stream(
     mut stream: WebSocketStream<Async<TcpStream>>,
-    highscore_vec: &mut Vec<HighScoreEntry>,
+    highscore_vec: &mut Arc<Mutex<Vec<HighScoreEntry>>>,
 ) {
     while let Some(Ok(Message::Binary(t))) = stream.next().await {
         match bincode::deserialize::<ClientMessage>(&t) {
@@ -199,10 +201,14 @@ async fn read_stream(
 
 pub fn main() {
     env_logger::from_env(Env::default().default_filter_or("snake_server=INFO")).init();
-    let addr = "127.0.0.1:8090";
+    let addr = "0.0.0.0:8090";
 
-    let mut highscore_vec: Vec<HighScoreEntry> = read_highscore_list();
+    let highscore_vec = Arc::new(Mutex::new(read_highscore_list()));
     println!("{:#?}", highscore_vec);
+
+    for _ in 0..20 {
+        std::thread::spawn(|| smol::run(future::pending::<()>()));
+    }
 
     smol::block_on(async {
         info!("Listening on: {}", addr);
@@ -212,15 +218,18 @@ pub fn main() {
 
         while let Ok((stream, addr)) = listener.accept().await {
             info!("Got connection from {}", addr);
-            match async_tungstenite::accept_async(stream).await {
-                Err(e) => {
-                    error!("Could not get stream: {}", e);
-                }
-                Ok(ws_stream) => {
-                    info!("Reading incomming stream...");
-                    read_stream(ws_stream, &mut highscore_vec).await;
-                }
-            }
+            let mut highscore_vec = highscore_vec.clone();
+            Task::spawn(async move {
+                match async_tungstenite::accept_async(stream).await {
+                    Err(e) => {
+                        error!("Could not get stream: {}", e);
+                    }
+                    Ok(ws_stream) => {
+                        info!("Reading incomming stream...");
+                        read_stream(ws_stream, &mut highscore_vec).await;
+                    }
+                };
+            }).detach();
         }
     });
 }
