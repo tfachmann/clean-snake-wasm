@@ -5,11 +5,15 @@ use futures::{future, sink::SinkExt, stream::StreamExt};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use smol::{Async, Task};
-use snake_common::{ClientMessage, ServerMessage};
-use std::{io::{Read, Write}, sync::{Arc, Mutex}};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::{fs::File, time::Duration};
+use std::{
+    io::{Read, Write},
+    sync::{Arc, Mutex},
+};
 use thiserror::Error;
+
+use snake_common::{ClientMessage, ServerMessage};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct HighScoreEntry {
@@ -86,6 +90,8 @@ fn write_highscore_list(data: &Vec<HighScoreEntry>) -> Result<(), WriteError> {
     Ok(())
 }
 
+/// Sends back the highscore of the 10 best entries,
+/// and the position of your score as well
 async fn request_highscore(
     score: u32,
     stream: &mut WebSocketStream<Async<TcpStream>>,
@@ -132,6 +138,8 @@ async fn request_highscore(
     }
 }
 
+/// Adds the data of your submitted entry in the highscore vector
+/// Also saves its content to disk
 async fn submit_entry(
     name: &str,
     score: u32,
@@ -229,7 +237,8 @@ pub fn main() {
                         read_stream(ws_stream, &mut highscore_vec).await;
                     }
                 };
-            }).detach();
+            })
+            .detach();
         }
     });
 }
