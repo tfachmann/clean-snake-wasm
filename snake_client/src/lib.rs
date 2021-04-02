@@ -1,17 +1,17 @@
+use instant::Instant;
 use lazy_static;
+use rand::{thread_rng, Rng};
+use std::sync::Mutex;
+use std::{collections::VecDeque, rc::Rc, time::Duration};
 use wasm_bindgen::convert::FromWasmAbi;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-
-use rand::{thread_rng, Rng};
-use snake_common::{ClientMessage, ServerMessage};
-use std::sync::Mutex;
-use std::{collections::VecDeque, rc::Rc, time::Duration};
 use web_sys::{
     Blob, Document, Element, EventTarget, FileReader, HtmlButtonElement, HtmlInputElement,
     InputEvent, KeyboardEvent, MessageEvent, ProgressEvent, Text, TouchEvent, WebSocket, Window,
 };
-use instant::Instant;
+
+use snake_common::{ClientMessage, ServerMessage};
 
 type JsResult<T> = Result<T, JsValue>;
 type JsError = Result<(), JsValue>;
@@ -107,7 +107,7 @@ impl Snake {
     fn do_move(&mut self) -> GridPoint {
         let mut pos_new = match self.direction {
             Direction::Left => (
-                self.pos.0.checked_sub(1).unwrap_or_else( || {
+                self.pos.0.checked_sub(1).unwrap_or_else(|| {
                     self.passed_through_walls += 1;
                     self.grid_size.0 - 1
                 }),
@@ -116,7 +116,7 @@ impl Snake {
             Direction::Down => (self.pos.0, self.pos.1 + 1),
             Direction::Up => (
                 self.pos.0,
-                self.pos.1.checked_sub(1).unwrap_or_else( || {
+                self.pos.1.checked_sub(1).unwrap_or_else(|| {
                     self.passed_through_walls += 1;
                     self.grid_size.1 - 1
                 }),
@@ -535,8 +535,8 @@ impl Playing {
         Ok(())
     }
 
-    fn on_start_game(&self) -> JsResult<StartGame> {
-        Ok(StartGame::new(
+    fn on_start_game(&self) -> JsResult<EndGame> {
+        Ok(EndGame::new(
             self.base.clone(),
             self.window.clone(),
             GameInfo {
@@ -558,10 +558,143 @@ struct GameInfo {
     passed_through_walls: usize,
 }
 
-struct StartGame {
+trait DrawHighscore {
+    fn base(&mut self) -> &mut Base;
+    fn draw_highscore(&mut self, others: &Vec<(String, u32)>, you: &(u32, u32)) -> JsError {
+        fn count_digits(mut number: u32) -> u32 {
+            let mut digits: u32 = 1;
+            while number > 9 {
+                number = (number as f64 / 10.0) as u32;
+                digits += 1
+            }
+            return digits;
+        }
+        let create_text_element = |base: &mut Base,
+                                   width: usize,
+                                   height: usize,
+                                   text: &str,
+                                   class: &str|
+         -> Result<Element, JsValue> {
+            let text_element = base.doc.create_svg_element("text")?;
+            text_element.set_attribute("x", &width.to_string())?;
+            text_element.set_attribute("y", &height.to_string())?;
+            text_element.set_attribute("transform", "scale(0.4, 0.4)")?;
+            text_element.set_attribute("class", class)?;
+            let text_name = base.doc.create_text_node(text);
+            text_element.append_child(&text_name)?;
+            return Ok(text_element);
+        };
+        let fill_winner = |base: &mut Base,
+                           overlay: &mut Element,
+                           height: usize,
+                           your_pos: u32,
+                           your_score: u32|
+         -> JsError {
+            let text_place = create_text_element(
+                base,
+                130 - 10 * count_digits(your_pos) as usize,
+                height + 25,
+                &format!("{}.", your_pos),
+                "you",
+            )?;
+            let text_name = create_text_element(base, 140, height + 25, "YOU", "you")?;
+            let text_score =
+                create_text_element(base, 350, height + 25, &your_score.to_string(), "you")?;
+            overlay.append_child(&text_place)?;
+            overlay.append_child(&text_name)?;
+            overlay.append_child(&text_score)?;
+            Ok(())
+        };
+
+        let mut base = self.base();
+        let mut overlay = base
+            .doc
+            .get_element_by_id("game_overlay")
+            .expect("Could not find game_overlay");
+        let rect = base.doc.create_svg_element("rect")?;
+        rect.set_attribute("class", "highscore_background")?;
+        rect.set_attribute("width", "310")?;
+        rect.set_attribute("height", "225")?;
+        rect.set_attribute("x", "90")?;
+        rect.set_attribute("y", "50")?;
+        rect.set_attribute("transform", "scale(0.4, 0.4)")?;
+        overlay.append_child(&rect)?;
+
+        let (your_pos, your_score) = you;
+        let mut i = 1;
+        let mut you_inserted = false;
+        if *your_pos == 0 {
+            // you are the best
+            let height = 65 + 10;
+            fill_winner(base, &mut overlay, height - 25, *your_pos + 1, *your_score)?;
+            let dot = create_text_element(base, 160, height + 10, ".", "others")?;
+            let dot2 = create_text_element(base, 160, height + 14, ".", "others")?;
+            let dot3 = create_text_element(base, 160, height + 18, ".", "others")?;
+            let dot4 = create_text_element(base, 160, height + 22, ".", "others")?;
+            overlay.append_child(&dot)?;
+            overlay.append_child(&dot2)?;
+            overlay.append_child(&dot3)?;
+            overlay.append_child(&dot4)?;
+            i += 1;
+            you_inserted = true;
+        }
+        for (name, score) in others {
+            // only show the 10 best (including yourself)
+            if i == 11 {
+                continue;
+            }
+            let height = (65 + i * 18 + (15 * you_inserted as u32)) as usize;
+            let text_place = create_text_element(
+                base,
+                130 - 10 * count_digits(i as u32) as usize,
+                height,
+                &format!("{}.", i),
+                "others",
+            )?;
+            let text_name = create_text_element(base, 140, height, name, "others")?;
+            let text_score = create_text_element(base, 350, height, &score.to_string(), "others")?;
+
+            overlay.append_child(&text_place)?;
+            overlay.append_child(&text_name)?;
+            overlay.append_child(&text_score)?;
+            if !you_inserted {
+                if *your_pos == i as u32 {
+                    i += 1;
+                    // you are within the 10 best
+                    fill_winner(base, &mut overlay, height, *your_pos + 1, *your_score)?;
+                    let dot = create_text_element(base, 160, height + 7, ".", "others")?;
+                    let dot2 = create_text_element(base, 160, height + 10, ".", "others")?;
+                    overlay.append_child(&dot)?;
+                    overlay.append_child(&dot2)?;
+
+                    if *your_pos != others.len() as u32 {
+                        let dot3 = create_text_element(base, 160, height + 30, ".", "others")?;
+                        let dot4 = create_text_element(base, 160, height + 33, ".", "others")?;
+                        overlay.append_child(&dot3)?;
+                        overlay.append_child(&dot4)?;
+                    }
+                    you_inserted = true;
+                }
+            }
+            i += 1
+        }
+        if !you_inserted {
+            // you are outside the best 10
+            let height = 65 + others.len() * 18;
+            fill_winner(base, &mut overlay, height, *your_pos + 1, *your_score)?;
+            let dot = create_text_element(base, 160, height + 7, ".", "others")?;
+            let dot2 = create_text_element(base, 160, height + 10, ".", "others")?;
+            overlay.append_child(&dot)?;
+            overlay.append_child(&dot2)?;
+        }
+
+        Ok(())
+    }
+}
+
+struct EndGame {
     base: Rc<Base>,
     window: Rc<Window>,
-    overlay: Element,
     submit_button: HtmlButtonElement,
     input_name: HtmlInputElement,
     input_val_before: String,
@@ -569,13 +702,14 @@ struct StartGame {
     game_info: GameInfo,
 }
 
-impl StartGame {
-    fn new(base: Rc<Base>, window: Rc<Window>, game_info: GameInfo) -> StartGame {
-        let overlay = base
-            .doc
-            .get_element_by_id("game_overlay")
-            .expect("Could not find game_overlay");
+impl DrawHighscore for EndGame {
+    fn base(&mut self) -> &mut Base {
+        Rc::get_mut(&mut self.base).unwrap()
+    }
+}
 
+impl EndGame {
+    fn new(base: Rc<Base>, window: Rc<Window>, game_info: GameInfo) -> EndGame {
         let submit_button = base
             .doc
             .get_element_by_id("submit_score")
@@ -609,10 +743,9 @@ impl StartGame {
         &submit_button.set_onclick(Some(cb.as_ref().unchecked_ref()));
         cb.forget();
 
-        StartGame {
+        EndGame {
             base,
             window,
-            overlay,
             submit_button,
             input_name,
             input_val_before: String::new(),
@@ -623,120 +756,6 @@ impl StartGame {
 
     fn on_start_game(&self) -> JsResult<Playing> {
         Ok(Playing::new(self.base.clone(), self.window.clone())?)
-    }
-
-    fn draw_highscore(&mut self, others: &Vec<(String, u32)>, you: &(u32, u32)) -> JsError {
-        fn count_digits(mut number: u32) -> u32 {
-            let mut digits: u32 = 1;
-            while number > 9 {
-                number = (number as f64 / 10.0) as u32;
-                digits += 1
-            }
-            return digits;
-        }
-        let create_text_element =
-            |width: usize, height: usize, text: &str, class: &str| -> Result<Element, JsValue> {
-                let text_element = self.base.doc.create_svg_element("text")?;
-                text_element.set_attribute("x", &width.to_string())?;
-                text_element.set_attribute("y", &height.to_string())?;
-                text_element.set_attribute("transform", "scale(0.4, 0.4)")?;
-                text_element.set_attribute("class", class)?;
-                let text_name = self.base.doc.create_text_node(text);
-                text_element.append_child(&text_name)?;
-                return Ok(text_element);
-            };
-        let fill_winner = |height: usize, your_pos: u32, your_score: u32| -> JsError {
-            let text_place = create_text_element(
-                130 - 10 * count_digits(your_pos) as usize,
-                height + 25,
-                &format!("{}.", your_pos),
-                "you",
-            )?;
-            let text_name = create_text_element(140, height + 25, "YOU", "you")?;
-            let text_score = create_text_element(350, height + 25, &your_score.to_string(), "you")?;
-            self.overlay.append_child(&text_place)?;
-            self.overlay.append_child(&text_name)?;
-            self.overlay.append_child(&text_score)?;
-            Ok(())
-        };
-
-        let rect = self.base.doc.create_svg_element("rect")?;
-        rect.set_attribute("class", "highscore_background")?;
-        rect.set_attribute("width", "310")?;
-        rect.set_attribute("height", "225")?;
-        rect.set_attribute("x", "90")?;
-        rect.set_attribute("y", "50")?;
-        rect.set_attribute("transform", "scale(0.4, 0.4)")?;
-        self.overlay.append_child(&rect)?;
-
-        let (your_pos, your_score) = you;
-        let mut i = 1;
-        let mut you_inserted = false;
-        if *your_pos == 0 {
-            // you are the best
-            let height = 65 + 10;
-            fill_winner(height - 25, *your_pos + 1, *your_score)?;
-            let dot = create_text_element(160, height + 10, ".", "others")?;
-            let dot2 = create_text_element(160, height + 14, ".", "others")?;
-            let dot3 = create_text_element(160, height + 18, ".", "others")?;
-            let dot4 = create_text_element(160, height + 22, ".", "others")?;
-            self.overlay.append_child(&dot)?;
-            self.overlay.append_child(&dot2)?;
-            self.overlay.append_child(&dot3)?;
-            self.overlay.append_child(&dot4)?;
-            i += 1;
-            you_inserted = true;
-        }
-        for (name, score) in others {
-            // only show the 10 best (including yourself)
-            if i == 11 {
-                continue;
-            }
-            let height = (65 + i * 18 + (15 * you_inserted as u32)) as usize;
-            let text_place = create_text_element(
-                130 - 10 * count_digits(i as u32) as usize,
-                height,
-                &format!("{}.", i),
-                "others",
-            )?;
-            let text_name = create_text_element(140, height, name, "others")?;
-            let text_score = create_text_element(350, height, &score.to_string(), "others")?;
-
-            self.overlay.append_child(&text_place)?;
-            self.overlay.append_child(&text_name)?;
-            self.overlay.append_child(&text_score)?;
-            if !you_inserted {
-                if *your_pos == i as u32 {
-                    i += 1;
-                    // you are within the 10 best
-                    fill_winner(height, *your_pos + 1, *your_score)?;
-                    let dot = create_text_element(160, height + 7, ".", "others")?;
-                    let dot2 = create_text_element(160, height + 10, ".", "others")?;
-                    self.overlay.append_child(&dot)?;
-                    self.overlay.append_child(&dot2)?;
-
-                    if *your_pos != others.len() as u32 {
-                        let dot3 = create_text_element(160, height + 30, ".", "others")?;
-                        let dot4 = create_text_element(160, height + 33, ".", "others")?;
-                        self.overlay.append_child(&dot3)?;
-                        self.overlay.append_child(&dot4)?;
-                    }
-                    you_inserted = true;
-                }
-            }
-            i += 1
-        }
-        if !you_inserted {
-            // you are outside the best 10
-            let height = 65 + others.len() * 18;
-            fill_winner(height, *your_pos + 1, *your_score)?;
-            let dot = create_text_element(160, height + 7, ".", "others")?;
-            let dot2 = create_text_element(160, height + 10, ".", "others")?;
-            self.overlay.append_child(&dot)?;
-            self.overlay.append_child(&dot2)?;
-        }
-
-        Ok(())
     }
 
     fn check_name(&self, name: &str) -> bool {
@@ -784,8 +803,35 @@ impl StartGame {
     }
 }
 
+struct StartGame {
+    base: Rc<Base>,
+    window: Rc<Window>,
+}
+
+impl DrawHighscore for StartGame {
+    fn base(&mut self) -> &mut Base {
+        Rc::get_mut(&mut self.base).unwrap()
+    }
+}
+
+impl StartGame {
+    fn new(base: Rc<Base>, window: Rc<Window>) -> JsResult<StartGame> {
+        Ok(StartGame { base, window })
+    }
+
+    fn on_start_game(&self) -> JsResult<Playing> {
+        Ok(Playing::new(self.base.clone(), self.window.clone())?)
+    }
+
+    fn request_highscore(&self) -> JsError {
+        self.base.send(ClientMessage::RequestHighscore(0))?;
+        Ok(())
+    }
+}
+
 enum State {
     Playing(Playing),
+    EndGame(EndGame),
     StartGame(StartGame),
     Empty,
 }
@@ -795,11 +841,23 @@ impl State {
         Ok(match self {
             State::Playing(s) => s.on_keydown(event)?,
             State::StartGame(_s) => {
+                if event.key().as_str() == "h" {
+                    _s.request_highscore()?
+                }
+                else if event.key().as_str() == "Escape" {
+                    let s = std::mem::replace(self, State::Empty);
+                    match s {
+                        State::StartGame(s) => *self = State::Playing(s.on_start_game()?),
+                        _ => panic!("Invalid state"),
+                    }
+                }
+            }
+            State::EndGame(_s) => {
                 if event.key().as_str() == "Escape" {
                     // Transition to Playing
                     let s = std::mem::replace(self, State::Empty);
                     match s {
-                        State::StartGame(s) => *self = State::Playing(s.on_start_game()?),
+                        State::EndGame(s) => *self = State::Playing(s.on_start_game()?),
                         _ => panic!("Invalid state"),
                     }
                 }
@@ -811,7 +869,6 @@ impl State {
     fn move_left(&mut self, _event: TouchEvent) -> JsError {
         Ok(match self {
             State::Playing(s) => s.board.grid.snake.set_direction(Direction::Left),
-            State::StartGame(_s) => (),
             _ => (),
         })
     }
@@ -819,7 +876,6 @@ impl State {
     fn move_down(&mut self, _event: TouchEvent) -> JsError {
         Ok(match self {
             State::Playing(s) => s.board.grid.snake.set_direction(Direction::Down),
-            State::StartGame(_s) => (),
             _ => (),
         })
     }
@@ -827,7 +883,6 @@ impl State {
     fn move_up(&mut self, _event: TouchEvent) -> JsError {
         Ok(match self {
             State::Playing(s) => s.board.grid.snake.set_direction(Direction::Up),
-            State::StartGame(_s) => (),
             _ => (),
         })
     }
@@ -842,6 +897,13 @@ impl State {
                     _ => panic!("Invalid state"),
                 }
             }
+            State::EndGame(_s) => {
+                let s = std::mem::replace(self, State::Empty);
+                match s {
+                    State::EndGame(s) => *self = State::Playing(s.on_start_game()?),
+                    _ => panic!("Invalid state"),
+                }
+            }
             _ => (),
         })
     }
@@ -853,28 +915,30 @@ impl State {
                     Ok(_) => s.board.draw()?,
                     Err(_) => {
                         s.stop_game()?;
-                        // Transition to StartGame
+                        // Transition to EndGame
                         let s = std::mem::replace(self, State::Empty);
                         match s {
-                            State::Playing(s) => *self = State::StartGame(s.on_start_game()?),
+                            State::Playing(s) => *self = State::EndGame(s.on_start_game()?),
                             _ => panic!("Invalid state"),
                         }
                     }
                 }
             }
-            State::Empty => (),
-            State::StartGame(_) => (),
+            _ => (),
         }
         Ok(())
     }
 
     fn received_highscore(&mut self, others: &Vec<(String, u32)>, you: &(u32, u32)) -> JsError {
+        console_log!("Drawing Highscore...");
         match self {
-            State::Playing(_) => (),
+            State::EndGame(s) => {
+                s.draw_highscore(others, you)?;
+            }
             State::StartGame(s) => {
                 s.draw_highscore(others, you)?;
             }
-            State::Empty => (),
+            _ => (),
         }
         Ok(())
     }
@@ -882,20 +946,18 @@ impl State {
     fn on_submit_score(&mut self) -> JsError {
         console_log!("on_submit_score...");
         match self {
-            State::Playing(_) => (),
-            State::StartGame(s) => {
+            State::EndGame(s) => {
                 s.submit_score()?;
             }
-            State::Empty => (),
+            _ => (),
         }
         Ok(())
     }
 
     fn on_input_name(&mut self, _event: InputEvent) -> JsError {
         match self {
-            State::Playing(_) => (),
-            State::StartGame(s) => s.on_input_name_changed()?,
-            State::Empty => (),
+            State::EndGame(s) => s.on_input_name_changed()?,
+            _ => (),
         }
         Ok(())
     }
@@ -1004,6 +1066,6 @@ pub fn main() -> JsError {
         Err(_) => (),
     };
 
-    *HANDLE.lock().unwrap() = State::Playing(Playing::new(Rc::new(base), Rc::new(window))?);
+    *HANDLE.lock().unwrap() = State::StartGame(StartGame::new(Rc::new(base), Rc::new(window))?);
     Ok(())
 }
