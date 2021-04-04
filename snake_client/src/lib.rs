@@ -6,6 +6,7 @@ use std::{collections::VecDeque, rc::Rc, time::Duration};
 use wasm_bindgen::convert::FromWasmAbi;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
+use num_traits::Num;
 use web_sys::{
     Blob, Document, Element, EventTarget, FileReader, HtmlButtonElement, HtmlInputElement,
     InputEvent, KeyboardEvent, MessageEvent, ProgressEvent, Text, TouchEvent, WebSocket, Window,
@@ -22,16 +23,6 @@ type GridPoint = (usize, usize);
 
 macro_rules! console_log {
     ($($t:tt)*) => (web_sys::console::log_1(&format!($($t)*).into()))
-}
-
-trait DocExt {
-    fn create_svg_element(&self, t: &str) -> JsResult<Element>;
-}
-
-impl DocExt for Document {
-    fn create_svg_element(&self, t: &str) -> JsResult<Element> {
-        self.create_element_ns(Some("http://www.w3.org/2000/svg"), t)
-    }
 }
 
 #[derive(PartialEq)]
@@ -272,52 +263,40 @@ impl Grid {
 }
 
 struct Board {
-    doc: Document,
+    base: Rc<Base>,
 
     grid_drawer: Element,
     overlay: Element,
     text_score: Text,
     text_score_comment: Text,
     rect_size: Pos,
-    touch: bool,
 
     grid: Grid,
 }
 
 impl Board {
-    fn new(doc: &Document, touch: bool) -> JsResult<Board> {
-        doc.get_element_by_id("submit_score_wrapper")
-            .expect("Could not find submit_score_wrapper")
+    fn new(base: Rc<Base>) -> JsResult<Board> {
+        base.get_element_by_id("submit_score_wrapper")?
             .set_attribute("class", "hidden")?;
-        let grid_drawer = doc
-            .get_element_by_id("game_content")
-            .expect("Could not find game_content");
+        let grid_drawer = base.get_element_by_id("game_content")?;
         grid_drawer.set_inner_html("");
 
-        let overlay = doc
-            .get_element_by_id("game_overlay")
-            .expect("Could not find game_overlay");
+        let overlay = base.get_element_by_id("game_overlay")?;
         overlay.set_inner_html("");
 
-        let game_misc = doc
-            .get_element_by_id("game_misc")
-            .expect("Could not find game_misc");
+        let game_misc = base.get_element_by_id("game_misc")?;
         game_misc.set_inner_html("");
 
-        let score_svg = doc.create_svg_element("text")?;
-        score_svg.set_attribute("x", "320")?;
-        score_svg.set_attribute("y", "20")?;
+        let score_svg = base.create_svg_element("text", 320, 20)?;
         score_svg.set_attribute("transform", "scale(0.5, 0.5)")?;
-        let title_score = doc.create_text_node("Score: ");
-        let text_score = doc.create_text_node("0");
+        let title_score = base.doc.create_text_node("Score: ");
+        let text_score = base.doc.create_text_node("0");
         score_svg.append_child(&title_score)?;
         score_svg.append_child(&text_score)?;
 
-        let score_comment_svg = doc.create_svg_element("text")?;
-        score_comment_svg.set_attribute("x", "150")?;
-        score_comment_svg.set_attribute("y", "20")?;
+        let score_comment_svg = base.create_svg_element("text", 150, 20)?;
         score_comment_svg.set_attribute("transform", "scale(0.5, 0.5)")?;
-        let text_score_comment = doc.create_text_node("");
+        let text_score_comment = base.doc.create_text_node("");
         score_comment_svg.append_child(&text_score_comment)?;
 
         game_misc.append_child(&score_svg)?;
@@ -327,39 +306,33 @@ impl Board {
         let mut grid = Grid::new((40, 28));
         grid.spawn_food();
 
-        if touch {
-            let touch_div = doc
-                .get_element_by_id("touch_controls_wrapper")
-                .expect("Could not find touch_controls");
+        if base.touch {
+            let touch_div = base.get_element_by_id("touch_controls_wrapper")?;
             touch_div.set_attribute("class", "visible")?;
 
             set_event_cb(
-                &doc.get_element_by_id("move_left")
-                    .expect("Could not find move_left"),
+                &base.get_element_by_id("move_left")?,
                 "touchstart",
                 move |event: TouchEvent| HANDLE.lock().unwrap().move_left(event),
             )
             .forget();
 
             set_event_cb(
-                &doc.get_element_by_id("move_down")
-                    .expect("Could not find move_down"),
+                &base.get_element_by_id("move_down")?,
                 "touchstart",
                 move |event: TouchEvent| HANDLE.lock().unwrap().move_down(event),
             )
             .forget();
 
             set_event_cb(
-                &doc.get_element_by_id("move_up")
-                    .expect("Could not find move_up"),
+                &base.get_element_by_id("move_up")?,
                 "touchstart",
                 move |event: TouchEvent| HANDLE.lock().unwrap().move_up(event),
             )
             .forget();
 
             set_event_cb(
-                &doc.get_element_by_id("move_right")
-                    .expect("Could not find move_right"),
+                &base.get_element_by_id("move_right")?,
                 "touchstart",
                 move |event: TouchEvent| HANDLE.lock().unwrap().move_right(event),
             )
@@ -368,13 +341,12 @@ impl Board {
 
         console_log!("finish init board");
         Ok(Board {
-            doc: doc.clone(),
+            base,
             grid_drawer,
             overlay,
             text_score,
             text_score_comment,
             rect_size,
-            touch,
             grid,
         })
     }
@@ -413,7 +385,7 @@ impl Board {
                 let y_px = y as f32 * self.rect_size.1;
                 match field {
                     GridField::SnakeHead => {
-                        let snake = self.doc.create_svg_element("rect")?;
+                        let snake = self.base.create_svg_element("rect", x_px, y_px)?;
                         snake.class_list().add_1("snake_head")?;
                         snake.set_attribute("width", &self.rect_size.0.to_string())?;
                         snake.set_attribute("height", &self.rect_size.1.to_string())?;
@@ -422,21 +394,17 @@ impl Board {
                         self.grid_drawer.append_child(&snake)?;
                     }
                     GridField::Snake => {
-                        let snake = self.doc.create_svg_element("rect")?;
+                        let snake = self.base.create_svg_element("rect", x_px, y_px)?;
                         snake.class_list().add_1("snake")?;
                         snake.set_attribute("width", &self.rect_size.0.to_string())?;
                         snake.set_attribute("height", &self.rect_size.1.to_string())?;
-                        snake.set_attribute("x", &x_px.to_string())?;
-                        snake.set_attribute("y", &y_px.to_string())?;
                         self.grid_drawer.append_child(&snake)?;
                     }
                     GridField::Food => {
-                        let food = self.doc.create_svg_element("rect")?;
+                        let food = self.base.create_svg_element("rect", x_px, y_px)?;
                         food.class_list().add_1("food")?;
                         food.set_attribute("width", &self.rect_size.0.to_string())?;
                         food.set_attribute("height", &self.rect_size.1.to_string())?;
-                        food.set_attribute("x", &x_px.to_string())?;
-                        food.set_attribute("y", &y_px.to_string())?;
                         self.grid_drawer.append_child(&food)?;
                     }
                     GridField::Empty => (),
@@ -448,24 +416,11 @@ impl Board {
 
     fn draw_gameover(&mut self) -> JsError {
         self.text_score_comment.set_data("");
-        let text_svg = self.doc.create_svg_element("text")?;
-        text_svg.set_attribute("x", "61")?;
-        text_svg.set_attribute("y", "15")?;
-        let text = self.doc.create_text_node("Game Over");
+        let text_svg = self.base.create_svg_element("text", 61, 15)?;
+        let text = self.base.doc.create_text_node("Game Over");
         text_svg.append_child(&text)?;
 
-        let text_svg2 = self.doc.create_svg_element("text")?;
-        text_svg2.set_attribute("x", "115")?;
-        text_svg2.set_attribute("y", "250")?;
-        let text2 = self.doc.create_text_node(match self.touch {
-            true => "Touch `Right` to play again",
-            false => "Press `Esc` to play again",
-        });
-        text_svg2.append_child(&text2)?;
-        text_svg2.set_attribute("transform", "scale(0.5, 0.5)")?;
-
         self.overlay.append_child(&text_svg)?;
-        self.overlay.append_child(&text_svg2)?;
         Ok(())
     }
 }
@@ -483,6 +438,22 @@ impl Base {
             .map_err(|e| JsValue::from_str(&format!("Could not encode: {}", e)))?;
         self.ws.send_with_u8_array(&encoded[..])
     }
+
+    fn get_element_by_id(&self, id: &str) -> JsResult<Element> {
+        Ok(self
+            .doc
+            .get_element_by_id(id)
+            .expect(&format!("Could not find {}", id)))
+    }
+
+    fn create_svg_element<T: Num + std::fmt::Display>(&self, t: &str, x: T, y: T) -> JsResult<Element> {
+        let el = self
+            .doc
+            .create_element_ns(Some("http://www.w3.org/2000/svg"), t)?;
+        el.set_attribute("x", &x.to_string())?;
+        el.set_attribute("y", &y.to_string())?;
+        Ok(el)
+    }
 }
 
 struct Playing {
@@ -495,7 +466,7 @@ struct Playing {
 
 impl Playing {
     fn new(base: Rc<Base>, window: Rc<Window>) -> JsResult<Playing> {
-        let board = Board::new(&base.doc, base.touch)?;
+        let board = Board::new(base.clone())?;
 
         // game ticks
         let cb = Closure::wrap(Box::new(move || {
@@ -546,7 +517,7 @@ impl Playing {
                 changed_directions: self.board.grid.snake.changed_directions,
                 passed_through_walls: self.board.grid.snake.passed_through_walls,
             },
-        ))
+        )?)
     }
 }
 
@@ -575,9 +546,7 @@ trait DrawHighscore {
                                    text: &str,
                                    class: &str|
          -> Result<Element, JsValue> {
-            let text_element = base.doc.create_svg_element("text")?;
-            text_element.set_attribute("x", &width.to_string())?;
-            text_element.set_attribute("y", &height.to_string())?;
+            let text_element = base.create_svg_element("text", width, height)?;
             text_element.set_attribute("transform", "scale(0.4, 0.4)")?;
             text_element.set_attribute("class", class)?;
             let text_name = base.doc.create_text_node(text);
@@ -606,17 +575,12 @@ trait DrawHighscore {
             Ok(())
         };
 
-        let mut base = self.base();
-        let mut overlay = base
-            .doc
-            .get_element_by_id("game_overlay")
-            .expect("Could not find game_overlay");
-        let rect = base.doc.create_svg_element("rect")?;
+        let base = self.base();
+        let mut overlay = base.get_element_by_id("game_overlay")?;
+        let rect = base.create_svg_element("rect", 90, 50)?;
         rect.set_attribute("class", "highscore_background")?;
         rect.set_attribute("width", "310")?;
         rect.set_attribute("height", "225")?;
-        rect.set_attribute("x", "90")?;
-        rect.set_attribute("y", "50")?;
         rect.set_attribute("transform", "scale(0.4, 0.4)")?;
         overlay.append_child(&rect)?;
 
@@ -709,26 +673,20 @@ impl DrawHighscore for EndGame {
 }
 
 impl EndGame {
-    fn new(base: Rc<Base>, window: Rc<Window>, game_info: GameInfo) -> EndGame {
+    fn new(base: Rc<Base>, window: Rc<Window>, game_info: GameInfo) -> JsResult<EndGame> {
         let submit_button = base
-            .doc
-            .get_element_by_id("submit_score")
-            .expect("Could not find submit_score")
+            .get_element_by_id("submit_score")?
             .dyn_into::<HtmlButtonElement>()
             .expect("Not an HtmlButtonElement");
         submit_button.set_disabled(false);
         submit_button.set_inner_html("Submit");
 
-        base.doc
-            .get_element_by_id("submit_score_wrapper")
-            .expect("Could not find submit_score_wrapper")
+        base.get_element_by_id("submit_score_wrapper")?
             .set_attribute("class", "visible")
             .expect("Could not set class");
 
         let input_name = base
-            .doc
-            .get_element_by_id("input_name")
-            .expect("Could not find input_name")
+            .get_element_by_id("input_name")?
             .dyn_into::<HtmlInputElement>()
             .expect("Could not convert");
 
@@ -743,7 +701,17 @@ impl EndGame {
         &submit_button.set_onclick(Some(cb.as_ref().unchecked_ref()));
         cb.forget();
 
-        EndGame {
+        let overlay = base.get_element_by_id("game_overlay")?;
+        let text_svg = base.create_svg_element("text", 115, 250)?;
+        let text = base.doc.create_text_node(match base.touch {
+            true => "Touch `Right` to play again",
+            false => "Press `Esc` to play again",
+        });
+        text_svg.append_child(&text)?;
+        text_svg.set_attribute("transform", "scale(0.5, 0.5)")?;
+        overlay.append_child(&text_svg)?;
+
+        Ok(EndGame {
             base,
             window,
             submit_button,
@@ -751,7 +719,7 @@ impl EndGame {
             input_val_before: String::new(),
             already_submitted: false,
             game_info,
-        }
+        })
     }
 
     fn on_start_game(&self) -> JsResult<Playing> {
@@ -816,6 +784,20 @@ impl DrawHighscore for StartGame {
 
 impl StartGame {
     fn new(base: Rc<Base>, window: Rc<Window>) -> JsResult<StartGame> {
+        let overlay = base.get_element_by_id("game_overlay")?;
+
+        let title = base.create_svg_element("text", 32, 15)?;
+        title.append_child(&base.doc.create_text_node("Clean Snake Wasm"))?;
+        overlay.append_child(&title)?;
+
+        let play_txt = base.create_svg_element("text", 125, 250)?;
+        play_txt.set_attribute("transform", "scale(0.5, 0.5)")?;
+        play_txt.append_child(&base.doc.create_text_node(match base.touch {
+            true => "Touch `Right` to play",
+            false => "Press `Esc` to play",
+        }))?;
+        overlay.append_child(&play_txt)?;
+
         Ok(StartGame { base, window })
     }
 
@@ -843,8 +825,7 @@ impl State {
             State::StartGame(_s) => {
                 if event.key().as_str() == "h" {
                     _s.request_highscore()?
-                }
-                else if event.key().as_str() == "Escape" {
+                } else if event.key().as_str() == "Escape" {
                     let s = std::mem::replace(self, State::Empty);
                     match s {
                         State::StartGame(s) => *self = State::Playing(s.on_start_game()?),
