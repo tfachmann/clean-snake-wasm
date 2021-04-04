@@ -170,6 +170,7 @@ async fn read_stream(
     mut stream: WebSocketStream<Async<TcpStream>>,
     highscore_vec: &mut Arc<Mutex<Vec<HighScoreEntry>>>,
 ) {
+    request_highscore(0, &mut stream, highscore_vec).await;  // send back the highscore, when connected
     while let Some(Ok(Message::Binary(t))) = stream.next().await {
         match bincode::deserialize::<ClientMessage>(&t) {
             Err(e) => error!("Could not Deserialize msg: {}", e),
