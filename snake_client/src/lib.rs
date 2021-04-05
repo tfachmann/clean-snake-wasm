@@ -306,39 +306,6 @@ impl Board {
         let mut grid = Grid::new((40, 28));
         grid.spawn_food();
 
-        if base.touch {
-            let touch_div = base.get_element_by_id("touch_controls_wrapper")?;
-            touch_div.set_attribute("class", "visible")?;
-
-            set_event_cb(
-                &base.get_element_by_id("move_left")?,
-                "touchstart",
-                move |event: TouchEvent| HANDLE.lock().unwrap().move_left(event),
-            )
-            .forget();
-
-            set_event_cb(
-                &base.get_element_by_id("move_down")?,
-                "touchstart",
-                move |event: TouchEvent| HANDLE.lock().unwrap().move_down(event),
-            )
-            .forget();
-
-            set_event_cb(
-                &base.get_element_by_id("move_up")?,
-                "touchstart",
-                move |event: TouchEvent| HANDLE.lock().unwrap().move_up(event),
-            )
-            .forget();
-
-            set_event_cb(
-                &base.get_element_by_id("move_right")?,
-                "touchstart",
-                move |event: TouchEvent| HANDLE.lock().unwrap().move_right(event),
-            )
-            .forget();
-        }
-
         console_log!("finish init board");
         Ok(Board {
             base,
@@ -797,6 +764,39 @@ impl StartGame {
             false => "Press `Esc` to play",
         }))?;
         overlay.append_child(&play_txt)?;
+
+        if base.touch {
+            let touch_div = base.get_element_by_id("touch_controls_wrapper")?;
+            touch_div.set_attribute("class", "visible")?;
+
+            set_event_cb(
+                &base.get_element_by_id("move_left")?,
+                "touchstart",
+                move |event: TouchEvent| HANDLE.lock().unwrap().move_left(event),
+            )
+            .forget();
+
+            set_event_cb(
+                &base.get_element_by_id("move_down")?,
+                "touchstart",
+                move |event: TouchEvent| HANDLE.lock().unwrap().move_down(event),
+            )
+            .forget();
+
+            set_event_cb(
+                &base.get_element_by_id("move_up")?,
+                "touchstart",
+                move |event: TouchEvent| HANDLE.lock().unwrap().move_up(event),
+            )
+            .forget();
+
+            set_event_cb(
+                &base.get_element_by_id("move_right")?,
+                "touchstart",
+                move |event: TouchEvent| HANDLE.lock().unwrap().move_right(event),
+            )
+            .forget();
+        }
 
         Ok(StartGame { base, window })
     }
