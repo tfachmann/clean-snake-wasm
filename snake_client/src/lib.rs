@@ -25,6 +25,15 @@ macro_rules! console_log {
     ($($t:tt)*) => (web_sys::console::log_1(&format!($($t)*).into()))
 }
 
+trait OptionJsValue<T> {
+    fn to_js_err(self, err_msg: &str) -> Result<T, JsValue>;
+}
+impl<T> OptionJsValue<T> for Option<T> {
+    fn to_js_err(self, err_msg: &str) -> Result<T, JsValue> {
+        self.ok_or(JsValue::from_str(err_msg))
+    }
+}
+
 #[derive(PartialEq)]
 enum Direction {
     Left,
@@ -401,7 +410,7 @@ impl Base {
         Ok(self
             .doc
             .get_element_by_id(id)
-            .expect(&format!("Could not find {}", id)))
+            .to_js_err(&format!("Could not find id: {}", id))?)
     }
 
     fn create_svg_element<T>(&self, t: &str, x: T, y: T) -> JsResult<Element>
@@ -459,7 +468,7 @@ impl Playing {
     fn stop_game(&mut self) -> JsError {
         self.board
             .draw_gameover()
-            .expect("Could not draw gameover view");
+            .map_err(|_e| JsValue::from_str("Could not draw gameover view"))?;
         self.base.send(ClientMessage::RequestHighscore(
             self.board.grid.score as u32,
         ))?;
@@ -637,19 +646,16 @@ impl EndGame {
     fn new(base: Rc<Base>, window: Rc<Window>, game_info: GameInfo) -> JsResult<EndGame> {
         let submit_button = base
             .get_element_by_id("submit_score")?
-            .dyn_into::<HtmlButtonElement>()
-            .expect("Not an HtmlButtonElement");
+            .dyn_into::<HtmlButtonElement>()?;
         submit_button.set_disabled(false);
         submit_button.set_inner_html("Submit");
 
         base.get_element_by_id("submit_score_wrapper")?
-            .set_attribute("class", "visible")
-            .expect("Could not set class");
+            .set_attribute("class", "visible")?;
 
         let input_name = base
             .get_element_by_id("input_name")?
-            .dyn_into::<HtmlInputElement>()
-            .expect("Could not convert");
+            .dyn_into::<HtmlInputElement>()?;
 
         // TODO: only when connection exists
         set_event_cb(&input_name, "input", move |event: InputEvent| {
@@ -877,7 +883,7 @@ impl State {
     }
 
     fn game_tick(&mut self) -> JsError {
-        match self {
+        Ok(match self {
             State::Playing(s) => {
                 match s.board.grid.do_move() {
                     Ok(_) => s.board.draw()?,
@@ -893,12 +899,11 @@ impl State {
                 }
             }
             _ => (),
-        }
-        Ok(())
+        })
     }
 
     fn received_highscore(&mut self, others: &Vec<(String, u32)>, you: &(u32, u32)) -> JsError {
-        match self {
+        Ok(match self {
             State::EndGame(s) => {
                 s.draw_highscore(others, you)?;
             }
@@ -906,8 +911,7 @@ impl State {
                 s.draw_highscore(others, you)?;
             }
             _ => (),
-        }
-        Ok(())
+        })
     }
 
     fn on_submit_score(&mut self) -> JsError {
@@ -976,10 +980,12 @@ fn on_message(msg: ServerMessage) -> JsError {
 #[wasm_bindgen(start)]
 pub fn main() -> JsError {
     console_log!("Started main!");
-    let window = web_sys::window().expect("no global `window` exists");
+    let window = web_sys::window().to_js_err("no global window exists")?;
 
-    let doc = window.document().expect("should have a document on window");
-    let location = doc.location().expect("Could not get doc location");
+    let doc = window
+        .document()
+        .to_js_err("should have a document on window")?;
+    let location = doc.location().to_js_err("Could not get doc location")?;
     let hostname = location.hostname()?;
     let (ws_protocol, ws_port) = if location.protocol()? == "https:" {
         ("wss", 8091)
