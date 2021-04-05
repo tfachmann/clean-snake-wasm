@@ -798,11 +798,6 @@ impl StartGame {
     fn on_start_game(&self) -> JsResult<Playing> {
         Ok(Playing::new(self.base.clone(), self.window.clone())?)
     }
-
-    fn request_highscore(&self) -> JsError {
-        self.base.send(ClientMessage::RequestHighscore(0))?;
-        Ok(())
-    }
 }
 
 enum State {
@@ -817,9 +812,7 @@ impl State {
         Ok(match self {
             State::Playing(s) => s.on_keydown(event)?,
             State::StartGame(_s) => {
-                if event.key().as_str() == "h" {
-                    _s.request_highscore()?
-                } else if event.key().as_str() == "Escape" {
+                if event.key().as_str() == "Escape" {
                     let s = std::mem::replace(self, State::Empty);
                     match s {
                         State::StartGame(s) => *self = State::Playing(s.on_start_game()?),
@@ -972,6 +965,7 @@ where
     cb
 }
 
+/// Handle received message from Server
 fn on_message(msg: ServerMessage) -> JsError {
     let mut state = HANDLE.lock().unwrap();
     match msg {
@@ -996,6 +990,7 @@ pub fn main() -> JsError {
 
     let ws = WebSocket::new(&hostname)?;
 
+    // callback when message received
     let on_decoded_cb = Closure::wrap(Box::new(move |e: ProgressEvent| {
         let target = e.target().expect("Could not get target");
         let reader: FileReader = target.dyn_into().expect("Could not cast");
@@ -1008,6 +1003,8 @@ pub fn main() -> JsError {
             .expect("Could not decode message");
         on_message(msg).expect("Message decoding failed")
     }) as Box<dyn FnMut(ProgressEvent)>);
+
+    // register callback
     set_event_cb(&ws, "message", move |e: MessageEvent| {
         let blob = e.data().dyn_into::<Blob>()?;
         let fr = FileReader::new()?;
