@@ -1,12 +1,12 @@
 use instant::Instant;
 use lazy_static;
+use num_traits::Num;
 use rand::{thread_rng, Rng};
 use std::sync::Mutex;
 use std::{collections::VecDeque, rc::Rc, time::Duration};
 use wasm_bindgen::convert::FromWasmAbi;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use num_traits::Num;
 use web_sys::{
     Blob, Document, Element, EventTarget, FileReader, HtmlButtonElement, HtmlInputElement,
     InputEvent, KeyboardEvent, MessageEvent, ProgressEvent, Text, TouchEvent, WebSocket, Window,
@@ -135,7 +135,6 @@ impl Snake {
 
     fn do_stop(&mut self) {
         self.duration = self.start_time.elapsed();
-        console_log!("duration: {:?}", self.duration);
     }
 }
 
@@ -199,11 +198,6 @@ impl Grid {
             }
             GridField::Food => {
                 // check for perfect score
-                console_log!(
-                    "perfect: {}; actual: {}",
-                    self.perfect_score,
-                    self.move_count
-                );
                 // you don't have to be "PERFECT" to get perfect_score
                 self.score += if (self.move_count + 1) <= (self.perfect_score + 2) {
                     3
@@ -306,7 +300,6 @@ impl Board {
         let mut grid = Grid::new((40, 28));
         grid.spawn_food();
 
-        console_log!("finish init board");
         Ok(Board {
             base,
             grid_drawer,
@@ -356,8 +349,6 @@ impl Board {
                         snake.class_list().add_1("snake_head")?;
                         snake.set_attribute("width", &self.rect_size.0.to_string())?;
                         snake.set_attribute("height", &self.rect_size.1.to_string())?;
-                        snake.set_attribute("x", &x_px.to_string())?;
-                        snake.set_attribute("y", &y_px.to_string())?;
                         self.grid_drawer.append_child(&snake)?;
                     }
                     GridField::Snake => {
@@ -413,7 +404,10 @@ impl Base {
             .expect(&format!("Could not find {}", id)))
     }
 
-    fn create_svg_element<T: Num + std::fmt::Display>(&self, t: &str, x: T, y: T) -> JsResult<Element> {
+    fn create_svg_element<T>(&self, t: &str, x: T, y: T) -> JsResult<Element>
+    where
+        T: Num + std::fmt::Display,
+    {
         let el = self
             .doc
             .create_element_ns(Some("http://www.w3.org/2000/svg"), t)?;
@@ -911,7 +905,6 @@ impl State {
     }
 
     fn received_highscore(&mut self, others: &Vec<(String, u32)>, you: &(u32, u32)) -> JsError {
-        console_log!("Drawing Highscore...");
         match self {
             State::EndGame(s) => {
                 s.draw_highscore(others, you)?;
@@ -925,7 +918,6 @@ impl State {
     }
 
     fn on_submit_score(&mut self) -> JsError {
-        console_log!("on_submit_score...");
         match self {
             State::EndGame(s) => {
                 s.submit_score()?;
@@ -981,10 +973,7 @@ where
 }
 
 fn on_message(msg: ServerMessage) -> JsError {
-    console_log!("Got message {:?}", msg);
-
     let mut state = HANDLE.lock().unwrap();
-
     match msg {
         ServerMessage::Highscore { others, you } => state.received_highscore(&others, &you),
     }
@@ -992,7 +981,7 @@ fn on_message(msg: ServerMessage) -> JsError {
 
 #[wasm_bindgen(start)]
 pub fn main() -> JsError {
-    console_log!("Started Main!");
+    console_log!("Started main!");
     let window = web_sys::window().expect("no global `window` exists");
 
     let doc = window.document().expect("should have a document on window");
@@ -1006,7 +995,6 @@ pub fn main() -> JsError {
     let hostname = format!("{}://{}:{}", ws_protocol, hostname, ws_port);
 
     let ws = WebSocket::new(&hostname)?;
-    console_log!("ws ready_state: {}", ws.ready_state());
 
     let on_decoded_cb = Closure::wrap(Box::new(move |e: ProgressEvent| {
         let target = e.target().expect("Could not get target");
