@@ -6,6 +6,28 @@
 html {
 }
 
+a:link, a:visited {
+    color: #9E9E9E;
+}
+
+div#copyright {
+    display: inline;
+    margin-right: 5pt;
+}
+
+div#socials {
+    display: inline;
+}
+
+div#footer {
+    color: #9E9E9E;
+    height: 60pt;
+}
+div#footer div {
+    margin-bottom: 0;
+    margin-top: 0.5em;
+}
+
 body {
     font-family: Lato, sans-serif;
     font-size: 16px;
@@ -24,7 +46,7 @@ div#game {
     display: flex;
     flex-direction: column;
     flex-grow: 1;
-    height: 100%;
+    height: calc(100vh - 60pt);
 }
 
 div#submit_score_wrapper {
@@ -149,3 +171,4 @@ div#svg_div {
     margin-bottom: 10px;
     position: relative;
 }
+
