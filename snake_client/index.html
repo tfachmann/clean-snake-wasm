@@ -8,60 +8,63 @@
         <link href="style.css" rel="stylesheet">
     </head>
     <body>
-    <script type="module">
-        import init from './pkg/clean_snake_wasm.js';
+        <script type="module">
+            import init from './pkg/clean_snake_wasm.js';
         async function run() {
             await init();
         }
         run();
-    </script>
+        </script>
 
-    <!-- Main game UI -->
-    <div id="playing">
-        <div id="game">
-            <div id="svg_div">
-                <svg id="dummy" viewBox="0 0 200 160"></svg>
-                <div id="board" class="background"></div>
-                <svg id="game_svg" viewBox="0 0 200 160">
-                    <g id="game_misc" transform="translate(0 0)"></g>
-                    <g id="game_content" transform="translate(0 0)"></g>
-                    <g id="game_overlay" transform="translate(0 0)"></g>
-                </svg>
-            </div>
-            <div id="submit_score_wrapper" class="hidden">
-                <div id="submit_score_div">
-                    <input id="input_name", type="text", maxlength=20, placeholder="Name">
-                    <button id="submit_score">Submit</button>
+        <!-- Main game UI -->
+        <div id="content">
+            <div id="playing">
+                <div id="game">
+                    <div id="svg_div">
+                        <svg id="dummy" viewBox="0 0 200 160"></svg>
+                        <div id="board" class="background"></div>
+                        <svg id="game_svg" viewBox="0 0 200 160">
+                            <g id="game_misc" transform="translate(0 0)"></g>
+                            <g id="game_content" transform="translate(0 0)"></g>
+                            <g id="game_overlay" transform="translate(0 0)"></g>
+                        </svg>
+                    </div>
+                    <div id="submit_score_wrapper" class="hidden">
+                        <div id="submit_score_div">
+                            <input id="input_name", type="text", maxlength=20, placeholder="Name">
+                            <button id="submit_score">Submit</button>
+                        </div>
+                    </div>
+                    <div id="touch_controls_wrapper" class="hidden">
+                        <div id="touch_controls">
+                            <button id="move_left">Left</button>
+                            <button id="move_down">Down</button>
+                            <button id="move_up">Up</button>
+                            <button id="move_right">Right</button>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div id="touch_controls_wrapper" class="hidden">
-                <div id="touch_controls">
-                    <button id="move_left">Left</button>
-                    <button id="move_down">Down</button>
-                    <button id="move_up">Up</button>
-                    <button id="move_right">Right</button>
+        </div>
+
+        <hr>
+        <div id="footer">
+            <div>
+                <a href="https://github.com/tfachmann/clean-snake-wasm" target="_blank">
+                    <i class="fab fa-github"></i></a>
+                <a href="https://github.com/tfachmann/clean-snake-wasm" target="_blank">Source</a>
+            </div>
+            <div>
+                <div id="copyright">
+                    © 2021
+                    <a href="https://tfachmann.com" target="_blank">Timo Bachmann</a>
+                </div>
+                <div id="socials">
+                    <a href="https://github.com/tfachmann" target="_blank">
+                        <i class="fab fa-github">
+                        </i></a>
                 </div>
             </div>
         </div>
-    </div>
-
-    <div id="footer">
-        <div>
-        <a href="https://github.com/tfachmann/clean-snake-wasm" target="_blank">
-            <i class="fab fa-github"></i></a>
-        <a href="https://github.com/tfachmann/clean-snake-wasm" target="_blank">Source</a>
-        </div>
-        <div>
-        <div id="copyright">
-            © 2021
-            <a href="https://tfachmann.com" target="_blank">Timo Bachmann</a>
-        </div>
-        <div id="socials">
-            <a href="https://github.com/tfachmann" target="_blank">
-                <i class="fab fa-github">
-                </i></a>
-        </div>
-        </div>
-    </div>
-  </body>
+    </body>
 </html>
